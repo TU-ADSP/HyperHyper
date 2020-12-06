@@ -15,19 +15,19 @@ import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.security.interfaces.RSAPrivateKey;
 import java.security.spec.PKCS8EncodedKeySpec;
+import java.util.function.Consumer;
 
 import org.apache.commons.codec.binary.Base64;
 import org.bouncycastle.asn1.pkcs.PrivateKeyInfo;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.openssl.PEMParser;
 import org.bouncycastle.openssl.jcajce.JcaPEMKeyConverter;
-import org.hyperledger.fabric.gateway.Contract;
-import org.hyperledger.fabric.gateway.Gateway;
-import org.hyperledger.fabric.gateway.Identities;
-import org.hyperledger.fabric.gateway.Network;
+import org.hyperledger.fabric.gateway.*;
+import org.hyperledger.fabric.sdk.BlockEvent;
 
 public class Extrationtest {
 	public static void main(String[] args) throws Exception {
+	    // Channel connection preparation
 		// Path to a common connection profile describing the network.
 		Path networkConfigFile = Paths.get("src/main/resources/connection-org1.yaml");
 
@@ -38,7 +38,6 @@ public class Extrationtest {
 		inStream.close();
 
 		// key
-
 		String key = new String(Files.readAllBytes(Paths.get("src/main/resources/server.key")),
 				Charset.defaultCharset());
 
@@ -59,18 +58,35 @@ public class Extrationtest {
 		// Create a gateway connection
 		try (Gateway gateway = builder.connect()) {
 
+			
 			// Obtain a smart contract deployed on the network.
 			Network network = gateway.getNetwork("mychannel");
-			Contract contract = network.getContract("fabcar");
+			Contract contract = network.getContract("basic");
 
-			// Submit transactions that store state to the ledger.
-			byte[] createCarResult = contract.createTransaction("createCar").submit("CAR10", "VW", "Polo", "Grey",
-					"Mary");
-			System.out.println(new String(createCarResult, StandardCharsets.UTF_8));
+			Consumer<BlockEvent> consumer = (BlockEvent e) -> {
+				if (e != null) {
+					System.out.println(e.getBlockNumber());
+					for (BlockEvent.TransactionEvent te : e.getTransactionEvents()) {
+						System.out.println(te);
+					}
+				} else {
+					System.out.println("e was null");
+				}
+			};
 
-			// Evaluate transactions that query state from the ledger.
-			byte[] queryAllCarsResult = contract.evaluateTransaction("queryAllCars");
-			System.out.println(new String(queryAllCarsResult, StandardCharsets.UTF_8));
+//			synchronized (network) {
+//				network.addBlockListener(0, consumer);
+//
+//				network.wait();
+//			}
+
+			synchronized (contract) {
+				contract.addContractListener(0, (ContractEvent ce) -> {
+					System.out.println(new String(ce.getPayload().get()));
+				});
+
+				contract.wait();
+			}
 
 		} catch (Exception e) {
 			e.printStackTrace();
