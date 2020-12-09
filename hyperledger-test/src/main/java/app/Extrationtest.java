@@ -3,6 +3,7 @@ package app;
 import java.io.FileInputStream;
 import java.io.InputStream;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -18,7 +19,38 @@ import org.hyperledger.fabric.gateway.*;
 import org.hyperledger.fabric.sdk.BlockEvent;
 
 public class Extrationtest {
+
+	// inspired from: https://stackoverflow.com/questions/9655181/how-to-convert-a-byte-array-to-a-hex-string-in-java
+	private static final byte[] HEX_ARRAY = "0123456789ABCDEF".getBytes(StandardCharsets.US_ASCII);
+	public static String bytesToHex(byte[] bytes) {
+		byte[] hexChars = new byte[bytes.length * 2];
+		for (int j = 0; j < bytes.length; j++) {
+			int v = bytes[j] & 0xFF;
+			hexChars[j * 2] = HEX_ARRAY[v >>> 4];
+			hexChars[j * 2 + 1] = HEX_ARRAY[v & 0x0F];
+		}
+		return new String(hexChars, StandardCharsets.UTF_8);
+	}
+
 	public static void main(String[] args) throws Exception {
+		int startBlock = 0;
+		int endBlock = Integer.MAX_VALUE;
+		if (args.length < 1) {
+			System.out.println("Please provide mode as first argument: 'network', 'contract' or 'combined'");
+			System.exit(1);
+		}
+		if (args.length > 1) {
+			startBlock = Integer.parseInt(args[1]);
+		}
+		if (args.length > 2) {
+			endBlock = Integer.parseInt(args[2]);
+		}
+		if (startBlock >= endBlock) {
+			System.out.println("Please provide a start block number that is smaller than the end block number!");
+			System.exit(1);
+		}
+		final int endBlockLambda = endBlock;
+
 	    // Channel connection preparation
 		// Path to a common connection profile describing the network.
 		Path networkConfigFile = Paths.get("src/main/resources/connection-org1.yaml");
@@ -53,28 +85,30 @@ public class Extrationtest {
 			Network network = gateway.getNetwork("mychannel");
 			Contract contract = network.getContract("basic");
 
-			Consumer<BlockEvent> consumer = (BlockEvent e) -> {
-				if (e != null) {
-					System.out.println(e.getBlockNumber());
-					for (BlockEvent.TransactionEvent te : e.getTransactionEvents()) {
-						System.out.println(te.getTimestamp());
-					}
-				} else {
-					System.out.println("e was null");
-				}
-			};
-
 			if (args[0].equals("network")) {
+				network.addBlockListener(startBlock, (BlockEvent e) -> {
+					if (e.getBlockNumber() > endBlockLambda) {
+					    synchronized (network) {
+							network.notifyAll();
+						}
+					} else {
+						System.out.println(e.getBlockNumber() + ", "  + bytesToHex(e.getDataHash()) + ", " + e.getBlock().getData().getSerializedSize());
+					}
+				});
 				synchronized (network) {
-					network.addBlockListener(0, consumer);
 					network.wait();
 				}
 			} else {
+				contract.addContractListener(startBlock, (ContractEvent ce) -> {
+					if (ce.getTransactionEvent().getBlockEvent().getBlockNumber() > endBlockLambda) {
+						synchronized (contract) {
+							contract.notifyAll();
+						}
+					} else {
+						System.out.println(ce.getTransactionEvent().getBlockEvent().getBlockNumber() + ", " + ce.getTransactionEvent().getTimestamp() + ", " + new String(ce.getPayload().get()));
+					}
+				});
 				synchronized (contract) {
-					contract.addContractListener(0, (ContractEvent ce) -> {
-						System.out.println(new String(ce.getPayload().get()));
-					});
-
 					contract.wait();
 				}
 			}
