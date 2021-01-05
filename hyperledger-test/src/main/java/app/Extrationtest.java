@@ -12,7 +12,6 @@ import java.security.PrivateKey;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.security.spec.PKCS8EncodedKeySpec;
-import java.util.function.Consumer;
 
 import org.apache.commons.codec.binary.Base64;
 import org.hyperledger.fabric.gateway.*;
@@ -83,16 +82,17 @@ public class Extrationtest {
 		try (Gateway gateway = builder.connect()) {
 			// Obtain a smart contract deployed on the network.
 			Network network = gateway.getNetwork("mychannel");
-			Contract contract = network.getContract("basic");
+			Contract contract = network.getContract("kitties");
 
 			if (args[0].equals("network")) {
 				network.addBlockListener(startBlock, (BlockEvent e) -> {
-					if (e.getBlockNumber() > endBlockLambda) {
+					if (e.getBlockNumber() <= endBlockLambda) {
+						System.out.println(e.getBlockNumber() + ", "  + bytesToHex(e.getDataHash()) + ", " + e.getBlock().getData().getSerializedSize());
+					}
+					if (e.getBlockNumber() >= endBlockLambda) {
 					    synchronized (network) {
 							network.notifyAll();
 						}
-					} else {
-						System.out.println(e.getBlockNumber() + ", "  + bytesToHex(e.getDataHash()) + ", " + e.getBlock().getData().getSerializedSize());
 					}
 				});
 				synchronized (network) {
@@ -100,12 +100,13 @@ public class Extrationtest {
 				}
 			} else {
 				contract.addContractListener(startBlock, (ContractEvent ce) -> {
-					if (ce.getTransactionEvent().getBlockEvent().getBlockNumber() > endBlockLambda) {
+					if (ce.getTransactionEvent().getBlockEvent().getBlockNumber() <= endBlockLambda) {
+						System.out.println(ce.getTransactionEvent().getBlockEvent().getBlockNumber() + ", " + ce.getTransactionEvent().getTimestamp() + ", " + new String(ce.getPayload().get()));
+					}
+					if (ce.getTransactionEvent().getBlockEvent().getBlockNumber() >= endBlockLambda) {
 						synchronized (contract) {
 							contract.notifyAll();
 						}
-					} else {
-						System.out.println(ce.getTransactionEvent().getBlockEvent().getBlockNumber() + ", " + ce.getTransactionEvent().getTimestamp() + ", " + new String(ce.getPayload().get()));
 					}
 				});
 				synchronized (contract) {
